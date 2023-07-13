@@ -16,6 +16,7 @@ int status_led_count = 4;
 int water_label[] = {95, 95};
 bool relay_state[] = {false, false};
 bool is_enable_channel[] = {true, true};
+int tank_size_in_cm[] = {120, 60};
 
 HTTPClient http;
 
@@ -232,7 +233,43 @@ void init_gpio()
 	digitalWrite(relay_output[0], HIGH);
 	pinMode(relay_output[1], OUTPUT);
 	digitalWrite(relay_output[1], HIGH);
+
+	// SR04 sensor 1
+	// pin 32 -echo pin 33 -trigger
+	pinMode(33, OUTPUT);
+	pinMode(32, INPUT);
 	print("GPIO initialized for output");
+}
+
+int get_sensor_readings(int ECHO_PIN, int TRIG_PIN, int tank_size)
+{
+	float duration_us, distance_cm;
+	// generate 10-microsecond pulse to TRIG pin
+	digitalWrite(TRIG_PIN, HIGH);
+	delayMicroseconds(10);
+	digitalWrite(TRIG_PIN, LOW);
+
+	// measure duration of pulse from ECHO pin
+	duration_us = pulseIn(ECHO_PIN, HIGH);
+
+	// calculate the distance
+	distance_cm = 0.017 * duration_us;
+
+	// print the value to Serial Monitor
+	Serial.print("\ndistance: ");
+	Serial.print(distance_cm);
+	Serial.println(" cm");
+
+	// calculate the percentage
+	if (distance_cm > tank_size)
+		distance_cm = tank_size;
+	int percentage = 100 - int((distance_cm * 100) / tank_size);
+
+	Serial.print("water level percentage: ");
+	Serial.print(percentage);
+	Serial.println(" %");
+
+	return percentage;
 }
 
 void cron()
@@ -273,7 +310,8 @@ void cron()
 void init_web_server()
 {
 	server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-			  { request->send(200, "text/html", "<!DOCTYPE html><html><head><style>.toggle{display:inline-block;width:60px;height:34px;position:relative;cursor:pointer}.toggle input[type=checkbox]{display:none}.slider{position:absolute;top:0;left:0;right:0;bottom:0;background-color:#ccc;border-radius:34px;transition:.4s}.slider:before{position:absolute;content:"";height:26px;width:26px;left:4px;bottom:4px;background-color:#fff;border-radius:50%;transition:.4s}input[type=checkbox]:checked+.slider{background-color:#2196F3}input[type=checkbox]:checked+.slider:before{transform:translateX(26px)}</style></head><body><div class=toggle><input type=checkbox id=toggle1 onclick=toggleButton(0,this.checked)><label class=slider for=toggle1></label></div><div class=toggle><input type=checkbox id=toggle2 onclick=toggleButton(1,this.checked)><label class=slider for=toggle2></label></div><script>function toggleButton(button,state){const url=`http://192.168.2.91/${button}/${state?1:0}`;fetch(url).then(response=>{}).catch(error=>{});}</script></body></html>"); });
+			  { request->send(200, "text/html", "<!DOCTYPE html><html><head><style>.toggle{display:inline-block;width:60px;height:34px;position:relative;cursor:pointer}.toggle input[type=checkbox]{display:none}.slider{position:absolute;top:0;left:0;right:0;bottom:0;background-color:#ccc;border-radius:34px;transition:.4s}.slider:before{position:absolute;content:"
+												";height:26px;width:26px;left:4px;bottom:4px;background-color:#fff;border-radius:50%;transition:.4s}input[type=checkbox]:checked+.slider{background-color:#2196F3}input[type=checkbox]:checked+.slider:before{transform:translateX(26px)}</style></head><body><div class=toggle><input type=checkbox id=toggle1 onclick=toggleButton(0,this.checked)><label class=slider for=toggle1></label></div><div class=toggle><input type=checkbox id=toggle2 onclick=toggleButton(1,this.checked)><label class=slider for=toggle2></label></div><script>function toggleButton(button,state){const url=`http://192.168.2.91/${button}/${state?1:0}`;fetch(url).then(response=>{}).catch(error=>{});}</script></body></html>"); });
 	server.on("/1/0", HTTP_GET, [](AsyncWebServerRequest *request)
 			  { relay_state[1] = false;digitalWrite(relay_output[1], HIGH);request->send(200, "text/plain", "done"); });
 	server.on("/1/1", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -313,7 +351,7 @@ void setup()
 {
 
 	Serial.begin(115200);
-	delay(4000);
+	// delay(4000);
 	print("board on setup mode\n logging service start");
 	http.begin("https://heartbt.xyz/api/test_api");
 
@@ -337,9 +375,10 @@ void loop()
 		turn_on_blue_light(false);
 
 	// your code here
+	water_label[0] = get_sensor_readings(32, 33, tank_size_in_cm[0]); // pin 32 -echo pin 33 -trigger
 
 	// TODO: get water lavel status
-	get_water_status();
+	// get_water_status();
 
 	// calculation status
 	sync_led();
@@ -348,5 +387,5 @@ void loop()
 	cron();
 
 	// delay
-	delay(1000);
+	delay(500);
 }
