@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ESPAsyncWebServer.h>
 
 const char *ssid = "HeartBeat_Main";
 const char *password = "connected";
@@ -8,19 +9,20 @@ IPAddress gateway(192, 168, 2, 1);	 // set your router's gateway IP address
 IPAddress subnet(255, 255, 255, 0);	 // set your subnet mask
 IPAddress dns(8, 8, 8, 8);			 // set your desired DNS server
 // int blueLedPin = 4;					 // set your blue LED pin number
+AsyncWebServer server(80);
 const int blueLedPin = 2;
 bool is_blue_led_on = false;
 int status_led_count = 4;
 int water_label[] = {95, 95};
 bool relay_state[] = {false, false};
-bool is_enable_channel[] = {true, false};
+bool is_enable_channel[] = {true, true};
 
 HTTPClient http;
 
 const int output_led[] = {16, 17, 18, 19, 21, 22, 23, 25, 26, 27};
 const int num_leds = sizeof(output_led) / sizeof(output_led[0]);
 
-int relay_output[] = {32, 33};
+int relay_output[] = {13, 14};
 
 void sync_led()
 {
@@ -227,7 +229,9 @@ void init_gpio()
 	}
 	// relay
 	pinMode(relay_output[0], OUTPUT);
+	digitalWrite(relay_output[0], HIGH);
 	pinMode(relay_output[1], OUTPUT);
+	digitalWrite(relay_output[1], HIGH);
 	print("GPIO initialized for output");
 }
 
@@ -238,13 +242,13 @@ void cron()
 	{
 		if (relay_state[0] && water_label[0] >= 95)
 		{
-			digitalWrite(relay_output[0], 0);
+			digitalWrite(relay_output[0], HIGH); // off = HIGH
 			relay_state[0] = false;
 			print("relay 1: OFF");
 		}
 		if (!relay_state[0] && water_label[0] < 20)
 		{
-			digitalWrite(relay_output[0], 1);
+			digitalWrite(relay_output[0], LOW); // ON = LOW
 			relay_state[0] = true;
 			print("relay 1: ON");
 		}
@@ -253,30 +257,40 @@ void cron()
 	{
 		if (relay_state[1] && water_label[1] >= 95)
 		{
-			digitalWrite(relay_output[1], 0);
+			digitalWrite(relay_output[1], HIGH); // off = HIGH
 			relay_state[1] = false;
 			print("relay 2: OFF");
 		}
 		if (!relay_state[1] && water_label[1] < 20)
 		{
-			digitalWrite(relay_output[1], 0);
+			digitalWrite(relay_output[1], LOW); // ON = LOW
 			relay_state[1] = true;
 			print("relay 2: ON");
 		}
 	}
 }
-void setup()
+
+void init_web_server()
 {
-	Serial.begin(115200);
-	print("board on setup mode\n logging service start");
-	http.begin("https://heartbt.xyz/api/test_api");
+	server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+			  { request->send(200, "text/html", "<!DOCTYPE html><html><head><style>.toggle{display:inline-block;width:60px;height:34px;position:relative;cursor:pointer}.toggle input[type=checkbox]{display:none}.slider{position:absolute;top:0;left:0;right:0;bottom:0;background-color:#ccc;border-radius:34px;transition:.4s}.slider:before{position:absolute;content:"";height:26px;width:26px;left:4px;bottom:4px;background-color:#fff;border-radius:50%;transition:.4s}input[type=checkbox]:checked+.slider{background-color:#2196F3}input[type=checkbox]:checked+.slider:before{transform:translateX(26px)}</style></head><body><div class=toggle><input type=checkbox id=toggle1 onclick=toggleButton(0,this.checked)><label class=slider for=toggle1></label></div><div class=toggle><input type=checkbox id=toggle2 onclick=toggleButton(1,this.checked)><label class=slider for=toggle2></label></div><script>function toggleButton(button,state){const url=`http://192.168.2.91/${button}/${state?1:0}`;fetch(url).then(response=>{}).catch(error=>{});}</script></body></html>"); });
+	server.on("/1/0", HTTP_GET, [](AsyncWebServerRequest *request)
+			  { relay_state[1] = false;digitalWrite(relay_output[1], HIGH);request->send(200, "text/plain", "done"); });
+	server.on("/1/1", HTTP_GET, [](AsyncWebServerRequest *request)
+			  { relay_state[1] = true;digitalWrite(relay_output[1], LOW);request->send(200, "text/plain", "done"); });
+	server.on("/0/1", HTTP_GET, [](AsyncWebServerRequest *request)
+			  { relay_state[0] = true;digitalWrite(relay_output[0], LOW);request->send(200, "text/plain", "done"); });
+	server.on("/0/0", HTTP_GET, [](AsyncWebServerRequest *request)
+			  { relay_state[0] = false;digitalWrite(relay_output[0], HIGH);request->send(200, "text/plain", "done"); });
+	server.on("/state", HTTP_GET, [](AsyncWebServerRequest *request)
+			  {String relay1State = relay_state[0] ? "ON" : "OFF";String relay2State = relay_state[1] ? "ON" : "OFF";String response = "relay_1: " + relay1State + ", relay_2: " + relay2State;request->send(200, "text/plain", response); });
 
-	init_gpio();
+	server.begin();
+	print("Web server started on port 80");
+}
 
-	// configure blue LED pin as output
-	pinMode(blueLedPin, OUTPUT);
-	print("blue light pin config set");
-
+void connect_wifi()
+{
 	// connect to Wi-Fi
 	WiFi.begin(ssid, password);
 	// Serial.print("Connecting to Wi-Fi...");
@@ -293,6 +307,25 @@ void setup()
 	{
 		print("Failed to configure static IP and DNS");
 	}
+}
+
+void setup()
+{
+
+	Serial.begin(115200);
+	delay(4000);
+	print("board on setup mode\n logging service start");
+	http.begin("https://heartbt.xyz/api/test_api");
+
+	init_gpio();
+
+	// configure blue LED pin as output
+	pinMode(blueLedPin, OUTPUT);
+	print("blue light pin config set");
+
+	connect_wifi();
+
+	init_web_server();
 }
 
 void loop()
